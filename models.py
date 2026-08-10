@@ -72,3 +72,84 @@ class PasswordResetToken(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     user = relationship("User", back_populates="reset_tokens")
+
+
+# ---------- Tickets ----------
+
+class TicketStatus(str, enum.Enum):
+    new = "new"
+    triaged = "triaged"
+    awaiting_parts = "awaiting_parts"
+    in_repair = "in_repair"
+    resolved = "resolved"
+    closed = "closed"
+    escalated = "escalated"
+
+
+class TicketPriority(str, enum.Enum):
+    low = "low"
+    medium = "medium"
+    high = "high"
+    critical = "critical"
+
+
+class TicketCreatedVia(str, enum.Enum):
+    portal = "portal"
+    phone = "phone"
+    email = "email"
+    ai_agent = "ai_agent"
+
+
+# Statuses a ticket can never leave once reached — enforced in the router,
+# defined here so model and API logic can't drift out of sync.
+TERMINAL_STATUSES = {TicketStatus.resolved, TicketStatus.closed}
+
+
+class Ticket(Base):
+    __tablename__ = "tickets"
+
+    ticket_id = Column(String, primary_key=True, default=gen_uuid)
+    customer_id = Column(String, ForeignKey("users.user_id"), nullable=False, index=True)
+    assigned_technician_id = Column(String, ForeignKey("users.user_id"), nullable=True)
+
+    # No FK constraint to a formal assets table in this service — asset registry
+    # is a separate concern. Stored as a free-text reference (e.g. serial number).
+    asset_reference = Column(String, nullable=True)
+
+    subject = Column(String, nullable=False)
+    description = Column(String, nullable=False)
+    issue_category = Column(String, nullable=True)  # Hardware / Software / Diagnostic
+    status = Column(Enum(TicketStatus), nullable=False, default=TicketStatus.new)
+    priority = Column(Enum(TicketPriority), nullable=False, default=TicketPriority.medium)
+    created_via = Column(Enum(TicketCreatedVia), nullable=False, default=TicketCreatedVia.portal)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    resolved_at = Column(DateTime, nullable=True)
+
+    customer = relationship("User", foreign_keys=[customer_id])
+    assigned_technician = relationship("User", foreign_keys=[assigned_technician_id])
+    events = relationship(
+        "TicketEvent", back_populates="ticket",
+        cascade="all, delete-orphan", order_by="TicketEvent.timestamp",
+    )
+
+
+class TicketEvent(Base):
+    """
+    Append-only audit trail for a ticket. Every status change, assignment
+    change, or note is recorded here rather than overwriting a single field —
+    this is what gives customers a transparent, replayable history.
+    """
+    __tablename__ = "ticket_events"
+
+    event_id = Column(String, primary_key=True, default=gen_uuid)
+    ticket_id = Column(String, ForeignKey("tickets.ticket_id"), nullable=False, index=True)
+    event_type = Column(String, nullable=False)  # StatusChange / Note / Assignment / Created
+    old_value = Column(String, nullable=True)
+    new_value = Column(String, nullable=True)
+    actor_id = Column(String, ForeignKey("users.user_id"), nullable=False)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+
+    ticket = relationship("Ticket", back_populates="events")
+    actor = relationship("User")
