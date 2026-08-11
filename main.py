@@ -1,18 +1,21 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from database import Base, engine
+import os
 import auth
 import users
 import tickets
 # Creates tables if they don't exist. For real migrations as the schema evolves,
 # swap this out for Alembic rather than relying on create_all.
 Base.metadata.create_all(bind=engine)
+allowed_origins = os.getenv("ALLOWED_ORIGINS", "").split(",")
 
 app = FastAPI(
     title="Lenovo Support - Auth Service",
     description="Full CRUD authentication with admin, staff, and customer roles",
     version="1.0.0",
 )
+
 
 app.add_middleware(
 CORSMiddleware,
