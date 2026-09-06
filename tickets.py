@@ -208,6 +208,11 @@ def update_ticket(
                 ticket.resolved_at = None  # reopened
 
         if payload.assigned_technician_id is not None:
+            if current_user.role != UserRole.admin:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Only admins can assign or reassign a ticket's technician",
+                )
             technician = db.query(User).filter(
                 User.user_id == payload.assigned_technician_id,
                 User.role.in_(STAFF_OR_ADMIN),
