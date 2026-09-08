@@ -14,6 +14,7 @@ from auth_utils import (
     generate_refresh_token, refresh_token_expiry,
     generate_reset_token, reset_token_expiry,
 )
+from email_utils import send_password_reset_email
 from dependencies import get_current_user
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -126,7 +127,14 @@ def forgot_password(payload: ForgotPasswordRequest, db: Session = Depends(get_db
         )
         db.add(reset)
         db.commit()
-        # In production: email `token` as a link, never return it in the API response.
+
+        try:
+            send_password_reset_email(user.email, token)
+        except Exception as exc:
+            # Don't let an SMTP failure change the response — that would leak
+            # whether the email exists. Log it server-side so it's still
+            # debuggable when testing locally.
+            print(f"[forgot-password] Failed to send reset email to {user.email}: {exc}")
 
     return {"message": "If that email is registered, a reset link has been sent."}
 
